@@ -39,23 +39,28 @@ n_bins    = 40
 bin_edges = np.linspace(0, L / 2, n_bins + 1)
 bin_c     = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 
-g_nufft = np.zeros(n_bins)
-g_gs    = np.zeros(n_bins)
+g_nufft  = np.zeros(n_bins)
+g_gs     = np.zeros(n_bins)
+cnt_nufft = np.zeros(n_bins, dtype=int)  # počet realizací které přispěly
+cnt_gs    = np.zeros(n_bins, dtype=int)
 
 for i in range(N_real):
     w   = grf.make_white_noise(N, dim=1, seed=i)
     f_n = grf.generate_grf(x, corr, weights=w)
     _, g = grf.empirical_variogram(x, f_n, n_bins=n_bins)
     if len(g) == n_bins:
-        g_nufft += g
+        g_nufft  += g
+        cnt_nufft += 1
 
     f_g = np.asarray(gs.SRF(model, seed=i)(x)).ravel()
     _, g = grf.empirical_variogram(x, f_g, n_bins=n_bins)
     if len(g) == n_bins:
-        g_gs += g
+        g_gs  += g
+        cnt_gs += 1
 
-g_nufft /= N_real
-g_gs    /= N_real
+# dělíme skutečným počtem přispívajících realizací (ne vždy N_real)
+g_nufft = np.divide(g_nufft, cnt_nufft, where=cnt_nufft > 0)
+g_gs    = np.divide(g_gs,    cnt_gs,    where=cnt_gs    > 0)
 
 h_th     = np.linspace(0, L / 2, 300)
 gamma_th = 1 - np.exp(-0.5 * (h_th / phi)**2)
@@ -71,9 +76,9 @@ rng_np  = np.random.default_rng(seed)
 pts_irr = np.column_stack([rng_np.uniform(0, L, N2**2),
                             rng_np.uniform(0, L, N2**2)])
 
-corr2d       = grf.GaussianCorrelation(L, N2, phi, sigma=1.0, dim=2)
-white2d      = grf.make_white_noise(N2, dim=2, seed=seed)
-f_irr2d      = grf.generate_grf(pts_irr, corr2d, weights=white2d)
+corr2d        = grf.GaussianCorrelation(L, N2, phi, sigma=1.0, dim=2)
+white2d       = grf.make_white_noise(N2, dim=2, seed=seed)
+f_irr2d       = grf.generate_grf(pts_irr, corr2d, weights=white2d)
 field2d_nufft = griddata(pts_irr, f_irr2d, (xx, yy), method='linear')
 
 model2d    = gs.Gaussian(dim=2, var=1.0, len_scale=phi)
@@ -112,22 +117,33 @@ ax2.set_title("GSTools vario_estimate (1 realizace)")
 ax2.set_xlabel("h [m]"); ax2.set_ylabel("γ(h)")
 ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
 
-# 2D
+# 2D NUFFT
 ax3 = fig.add_subplot(layout[1, 0])
 im3 = ax3.imshow(field2d_nufft, extent=[0,L,0,L], origin='lower', cmap='viridis')
 plt.colorbar(im3, ax=ax3)
 ax3.set_title(f"2D naše NUFFT (φ={phi})")
 
+# 2D GSTools
 ax4 = fig.add_subplot(layout[1, 1])
 im4 = ax4.imshow(field2d_gs, extent=[0,L,0,L], origin='lower', cmap='viridis')
 plt.colorbar(im4, ax=ax4)
 ax4.set_title(f"2D GSTools (φ={phi})")
 
+# Histogram hodnot obou 2D polí – ukazuje stejné statistické vlastnosti
 ax5 = fig.add_subplot(layout[1, 2])
-diff = field2d_nufft - field2d_gs
-im5 = ax5.imshow(diff, extent=[0,L,0,L], origin='lower', cmap='RdBu_r')
-plt.colorbar(im5, ax=ax5)
-ax5.set_title("Rozdíl (různé realizace)")
+vals_nufft = field2d_nufft[~np.isnan(field2d_nufft)].ravel()
+vals_gs    = field2d_gs.ravel()
+bins_hist  = np.linspace(min(vals_nufft.min(), vals_gs.min()),
+                          max(vals_nufft.max(), vals_gs.max()), 40)
+ax5.hist(vals_nufft, bins=bins_hist, alpha=0.5, density=True, label="naše NUFFT")
+ax5.hist(vals_gs,    bins=bins_hist, alpha=0.5, density=True, label="GSTools")
+# teoretické N(0,1)
+from scipy.stats import norm as sp_norm
+xn = np.linspace(bins_hist[0], bins_hist[-1], 200)
+ax5.plot(xn, sp_norm.pdf(xn, 0, 1), 'k--', lw=2, label="N(0,1)")
+ax5.set_title("Histogram hodnot 2D polí")
+ax5.set_xlabel("hodnota pole"); ax5.set_ylabel("hustota")
+ax5.legend(fontsize=8); ax5.grid(True, alpha=0.3)
 
 plt.suptitle(f"Bod 5: Srovnání s GSTools – Gaussovská korelace φ={phi}", fontsize=13)
 plt.tight_layout()
