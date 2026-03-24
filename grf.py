@@ -140,26 +140,36 @@ def generate_grf(x_points, corr, weights=None, seed=None):
 # =============================================================================
 
 def empirical_variogram(x, field, n_bins=30, n_sample=300):
-    """Odhadne variogram z realizace pole. Bere podvzorek n_sample bodů."""
+    """
+    Odhadne variogram z realizace pole.
+    Funguje pro 1D i 2D:
+      x: (M,)   pro 1D
+      x: (M, 2) pro 2D
+    Bere podvzorek n_sample bodů kvůli rychlosti.
+    """
     rng = np.random.default_rng(0)
-    idx = rng.choice(len(x), size=min(len(x), n_sample), replace=False)
+    x = np.asarray(x)
+    idx = rng.choice(len(field), size=min(len(field), n_sample), replace=False)
     xi, fi = x[idx], field[idx]
 
-    pairs_h, pairs_sq = [], []
-    for i in range(len(xi)):
-        for j in range(i + 1, len(xi)):
-            pairs_h.append(abs(xi[i] - xi[j]))
-            pairs_sq.append((fi[i] - fi[j])**2)
+    # vzdálenost – funguje pro 1D i 2D
+    if xi.ndim == 1:
+        dists = np.abs(xi[:, None] - xi[None, :])          # (n, n)
+    else:
+        diff  = xi[:, None, :] - xi[None, :, :]            # (n, n, 2)
+        dists = np.sqrt((diff ** 2).sum(axis=-1))           # (n, n)
 
-    pairs_h  = np.array(pairs_h)
-    pairs_sq = np.array(pairs_sq)
+    # jen horní trojúhelník (každý pár jednou)
+    i_upper, j_upper = np.triu_indices(len(xi), k=1)
+    pairs_h  = dists[i_upper, j_upper]
+    pairs_sq = (fi[i_upper] - fi[j_upper]) ** 2
+
     bins = np.linspace(0, pairs_h.max(), n_bins + 1)
-
     h_vals, g_vals = [], []
     for k in range(n_bins):
-        mask = (pairs_h >= bins[k]) & (pairs_h < bins[k+1])
+        mask = (pairs_h >= bins[k]) & (pairs_h < bins[k + 1])
         if mask.sum() > 5:
-            h_vals.append(0.5 * (bins[k] + bins[k+1]))
+            h_vals.append(0.5 * (bins[k] + bins[k + 1]))
             g_vals.append(0.5 * pairs_sq[mask].mean())
 
     return np.array(h_vals), np.array(g_vals)
