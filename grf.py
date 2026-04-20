@@ -192,53 +192,6 @@ class ExponentialCorrelation:
             )
 
 
-# =============================================================================
-# HERMITIAN SYMMETRY  →  real-valued IFFT output
-# =============================================================================
-
-def make_hermitian_nd(f_hat: np.ndarray) -> np.ndarray:
-    """Enforce Hermitian symmetry so that the IFFT of the output is real-valued.
-
-    The symmetry condition is  f_hat[-k] = conj(f_hat[k])  for every
-    multi-index k.  The function operates in *centered* layout where the
-    DC component sits at index ``zi = N//2`` along every axis (consistent
-    with ``np.fft.fftshift``).  All axes must have the same even length N.
-
-    Parameters
-    ----------
-    f_hat : np.ndarray, shape (N,)^dim
-        Complex Fourier coefficients in centered order.
-        Supported shapes: (N,), (N, N), (N, N, N).
-
-    Returns
-    -------
-    f : np.ndarray, same shape and dtype as f_hat
-        Copy of the input with Hermitian symmetry enforced:
-
-        * DC coefficient (index ``zi`` in every axis) → set to real part.
-        * For every multi-index with at least one positive shifted component,
-          the conjugate-mirror index is overwritten:
-          ``f[zi - shift] = conj(f[zi + shift])``.
-
-    Notes
-    -----
-    After applying this function, ``np.fft.ifftn(np.fft.ifftshift(f)).real``
-    will have negligible imaginary part (machine precision).
-    """
-    N = f_hat.shape[0]
-    zi = N // 2
-    f = f_hat.copy()
-    # DC component must be real
-    f[tuple([zi] * f.ndim)] = f[tuple([zi] * f.ndim)].real
-    for idx in np.ndindex(*f.shape):
-        shifted = tuple(i - zi for i in idx)
-        # Only process indices with at least one positive shifted component
-        # to avoid processing each pair twice
-        if all(s <= 0 for s in shifted):
-            continue
-        f[tuple((zi - s) % N for s in shifted)] = np.conj(f[idx])
-    return f
-
 
 # =============================================================================
 # WHITE NOISE IN FOURIER SPACE
@@ -373,9 +326,17 @@ def generate_grf(
         grids = np.meshgrid(*([corr.f_points] * dim), indexing='ij')
         omega_mag = np.sqrt(sum(g ** 2 for g in grids))
 
-    # Color noise and enforce Hermitian symmetry
+   # Build |omega| array over the full frequency grid
+    if dim == 1:
+        omega_mag = np.abs(corr.f_points)
+    else:
+        # PŘIDÁNO sparse=True pro úsporu paměti
+        grids = np.meshgrid(*([corr.f_points] * dim), indexing='ij', sparse=True)
+        omega_mag = np.sqrt(sum(g ** 2 for g in grids))
+
+    # Color noise (aplikace sqrt(2) místo vynucování symetrie)
     S = corr.spectral_density(omega_mag)
-    f_hat = make_hermitian_nd(weights * np.sqrt(S))
+    f_hat = weights * np.sqrt(2.0 * S)
 
     x_points = np.asarray(x_points)
 
