@@ -6,7 +6,6 @@ Public API
 GaussianCorrelation    – Gaussian correlation / spectral density model
 ExponentialCorrelation – Exponential (Matérn-1/2) correlation model
 make_white_noise       – complex white noise in Fourier space
-make_hermitian_nd      – enforce Hermitian symmetry → real IFFT output
 generate_grf           – generate a GRF realization at arbitrary points (1D, 2D, 3D)
 
 Typical usage
@@ -256,11 +255,12 @@ def generate_grf(
     Algorithm
     ---------
     1. Draw (or accept) complex white noise  w_k ~ CN(0, 1)  in Fourier space.
-    2. Color by spectrum:  ``f_hat_k = w_k * sqrt(S(|omega_k|))``.
-    3. Enforce Hermitian symmetry → guarantees a real-valued output.
-    4. NUFFT type 2:
-       ``f(x_j) = sum_k  f_hat_k * exp(i * omega_k · x_j)``
-    5. Normalize by  ``(1 / L)^(dim/2)``  so that  ``Var[f] ≈ sigma^2``.
+    2. Color by spectrum:  ``f_hat_k = w_k * sqrt(2 * S(|omega_k|))``.
+    3. NUFFT type 2:  ``f(x_j) = sum_k  f_hat_k * exp(i * omega_k · x_j)``
+    4. Take real part and normalize by  ``(1 / L)^(dim/2)``.
+
+    The ``sqrt(2)`` in step 2 compensates for the variance halving from ``Re[·]``,
+    replacing the explicit Hermitian-symmetry enforcement step.
 
     Normalization derivation:
 
@@ -319,22 +319,19 @@ def generate_grf(
     if weights is None:
         weights = make_white_noise(N_freq, dim=dim, seed=seed)
 
-    # Build |omega| array over the full frequency grid
+     # Build |omega| array over the full frequency grid.
+    # sparse=True avoids allocating dim full N^dim arrays – broadcasting handles the norm.
     if dim == 1:
         omega_mag = np.abs(corr.f_points)
     else:
-        grids = np.meshgrid(*([corr.f_points] * dim), indexing='ij')
-        omega_mag = np.sqrt(sum(g ** 2 for g in grids))
-
-   # Build |omega| array over the full frequency grid
-    if dim == 1:
-        omega_mag = np.abs(corr.f_points)
-    else:
-        # PŘIDÁNO sparse=True pro úsporu paměti
         grids = np.meshgrid(*([corr.f_points] * dim), indexing='ij', sparse=True)
         omega_mag = np.sqrt(sum(g ** 2 for g in grids))
 
-    # Color noise (aplikace sqrt(2) místo vynucování symetrie)
+    # Color noise.  The factor sqrt(2) compensates for the variance halving
+    # caused by taking Re[·] instead of enforcing Hermitian symmetry explicitly:
+    #   Var[Re[Σ_k w_k * sqrt(2S_k) * exp(i ω_k x)]]
+    #   = Σ_k 2S_k * Var[Re[w_k]] / L^dim
+    #   = Σ_k 2S_k * (1/2)        / L^dim  =  Σ_k S_k / L^dim  ≈  sigma²
     S = corr.spectral_density(omega_mag)
     f_hat = weights * np.sqrt(2.0 * S)
 
