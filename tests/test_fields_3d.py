@@ -33,7 +33,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import grf
-import Diagnostics
+import diagnostic
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +130,8 @@ def test_3d_variogram(CorrClass):
                              rng.uniform(0, L, 1000)])
     field = grf.generate_grf(pts, corr, seed=SEED)
 
-    h_emp, g_emp = Diagnostics.empirical_variogram(pts, field, n_bins=20, n_sample=400)
-    h_th,  g_th  = Diagnostics.theoretical_variogram(corr, h_max=h_emp.max())
+    h_emp, g_emp = diagnostic.empirical_variogram(pts, field, n_bins=20, n_sample=400)
+    h_th,  g_th  = diagnostic.theoretical_variogram(corr, h_max=h_emp.max())
 
     # Compare only lags <= phi where the curve is rising and well-sampled
     mask_emp = h_emp <= PHI
@@ -255,9 +255,9 @@ def test_3d_variogram_figure(plot_dir):
                                   rng.uniform(0, L, 1500)])
         field = grf.generate_grf(pts, corr, seed=SEED)
 
-        h_emp, g_emp = Diagnostics.empirical_variogram(pts, field,
+        h_emp, g_emp = diagnostic.empirical_variogram(pts, field,
                                                        n_bins=30, n_sample=600)
-        h_th,  g_th  = Diagnostics.theoretical_variogram(corr, h_max=h_emp.max())
+        h_th,  g_th  = diagnostic.theoretical_variogram(corr, h_max=h_emp.max())
 
         ax = axes[col]
         ax.plot(h_emp, g_emp, "o", ms=5, color="steelblue",
